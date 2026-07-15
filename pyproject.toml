@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "h4-debug"
-version = "0.1.5"
+version = "0.2.0"
 description = "Advanced application proxy debugger and F12-style web console"
 readme = "README.md"
 requires-python = ">=3.8"
@@ -15,6 +15,7 @@ dependencies = [
     "fastapi>=0.100",
     "uvicorn[standard]>=0.20",
     "websockets>=11.0",
+    "Pillow>=10.0.0",
 ]
 
 [project.scripts]

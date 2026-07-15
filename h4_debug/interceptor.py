@@ -18,8 +18,9 @@ _original_socket = socket.socket
 _original_print = builtins.print
 
 class TelemetryClient:
-    def __init__(self, port):
+    def __init__(self, port, command_callback=None):
         self.port = port
+        self.command_callback = command_callback
         self.queue = queue.Queue()
         self.buffer = ""
         self.thread = threading.Thread(target=self._run, daemon=True)
@@ -64,6 +65,9 @@ class TelemetryClient:
         try:
             cmd = json.loads(cmd_data)
             
+            if self.command_callback and self.command_callback(cmd):
+                return
+                
             if cmd.get("action") == "set_mode":
                 global _mode
                 _mode = cmd.get("mode", "Normal")

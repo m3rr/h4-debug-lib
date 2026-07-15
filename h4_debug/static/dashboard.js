@@ -77,6 +77,10 @@ document.addEventListener('DOMContentLoaded', () => {
             renderBasicLog(containers.disk, log, timeStr);
         } else if (log.module === 'Execution') {
             renderBasicLog(containers.execution, log, timeStr);
+        } else if (log.module === 'Data' && log.type === 'image_metadata') {
+            renderImageMetadata(containers.disk, log, timeStr);
+            // Also show a brief info in console
+            renderBasicLog(containers.console, {module: 'System', type: 'info', data: {text: `Image metadata loaded for ${log.data.file}. Check Disk tab.`}}, timeStr, 'system');
         } else if (log.module === 'Console') {
             if (log.type === 'eval_result') {
                 renderEvalResult(containers.console, log, timeStr);
@@ -92,6 +96,43 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             renderBasicLog(containers.console, log, timeStr);
         }
+    }
+
+    function renderImageMetadata(container, log, timeStr) {
+        const el = document.createElement('div');
+        el.className = 'log-entry image-metadata';
+        
+        let html = `<h3>Image: ${log.data.file}</h3>`;
+        html += `<div><strong>Format:</strong> ${log.data.format} | <strong>Size:</strong> ${log.data.size[0]}x${log.data.size[1]} | <strong>Mode:</strong> ${log.data.mode}</div>`;
+        
+        const exifCount = Object.keys(log.data.exif).length;
+        if (exifCount > 0) {
+            html += `<h4>EXIF Data (${exifCount} entries)</h4>`;
+            html += `<pre style="max-height: 200px; overflow-y: auto; background: var(--bg-dark); padding: 5px; font-size: 0.9em;">`;
+            for (let [k, v] of Object.entries(log.data.exif)) {
+                html += `${k}: ${v}\n`;
+            }
+            html += `</pre>`;
+            html += `<button class="btn-strip-exif" style="margin-top: 10px; padding: 5px 10px; background: #e74c3c; color: white; border: none; border-radius: 4px; cursor: pointer;">Strip EXIF Metadata</button>`;
+        } else {
+            html += `<h4>No EXIF Data found.</h4>`;
+        }
+        
+        el.innerHTML = html;
+        
+        const btn = el.querySelector('.btn-strip-exif');
+        if (btn) {
+            btn.addEventListener('click', () => {
+                if(ws && ws.readyState === WebSocket.OPEN) {
+                    ws.send(JSON.stringify({action: 'strip_exif', file: log.data.file}));
+                    btn.textContent = "Stripping...";
+                    btn.disabled = true;
+                }
+            });
+        }
+        
+        container.appendChild(el);
+        scrollToBottom(container);
     }
 
     function renderBasicLog(container, log, timeStr, customClass='') {
