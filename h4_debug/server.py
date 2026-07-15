@@ -10,7 +10,32 @@ app = FastAPI()
 
 # Store connected dashboard clients and the active telemetry process
 dashboard_clients = []
-active_telemetry_client = None
+active_telemetry_client = None  # This will now be a TCP socket
+
+# For broadcasting logs to WebSockets
+def broadcast_log(log_item_str):
+    try:
+        log_item = json.loads(log_item_str)
+        log_history.append(log_item)
+        if len(log_history) > MAX_HISTORY:
+            log_history.pop(0)
+    except Exception:
+        pass
+        
+    disconnected_clients = []
+    # Needs to be scheduled on the asyncio loop
+    async def _send(client):
+        try:
+            await client.send_text(log_item_str)
+        except Exception:
+            disconnected_clients.append(client)
+            
+    for client in dashboard_clients.copy():
+        asyncio.run_coroutine_threadsafe(_send(client), loop)
+        
+    for client in disconnected_clients:
+        if client in dashboard_clients:
+            dashboard_clients.remove(client)
 
 # To persist logs for when a dashboard connects slightly after startup
 log_history = []
@@ -30,40 +55,6 @@ async def get_dashboard():
         with open(dashboard_path, "r", encoding="utf-8") as f:
             return HTMLResponse(f.read())
     return HTMLResponse("<h1>Dashboard not found</h1>")
-
-@app.websocket("/ws/telemetry")
-async def websocket_telemetry(websocket: WebSocket):
-    """Endpoint for the intercepted process to push logs and receive commands."""
-    global active_telemetry_client
-    await websocket.accept()
-    active_telemetry_client = websocket
-    
-    try:
-        while True:
-            data = await websocket.receive_text()
-            
-            try:
-                log_item = json.loads(data)
-                log_history.append(log_item)
-                if len(log_history) > MAX_HISTORY:
-                    log_history.pop(0)
-            except Exception:
-                pass
-                
-            # Broadcast to all dashboards
-            disconnected_clients = []
-            for client in dashboard_clients:
-                try:
-                    await client.send_text(data)
-                except Exception:
-                    disconnected_clients.append(client)
-            
-            for client in disconnected_clients:
-                if client in dashboard_clients:
-                    dashboard_clients.remove(client)
-    except WebSocketDisconnect:
-        if active_telemetry_client == websocket:
-            active_telemetry_client = None
 
 @app.websocket("/ws/dashboard")
 async def websocket_dashboard(websocket: WebSocket):
@@ -87,15 +78,47 @@ async def websocket_dashboard(websocket: WebSocket):
             if cmd.get("action") == "clear":
                 log_history.clear()
             elif cmd.get("action") in ["evaluate", "set_mode"]:
-                # Forward commands to the active telemetry process
+                # Forward commands to the active telemetry process via TCP
                 if active_telemetry_client:
                     try:
-                        await active_telemetry_client.send_text(json.dumps(cmd))
+                        active_telemetry_client.sendall((json.dumps(cmd) + "\n").encode("utf-8"))
                     except Exception:
-                        pass
+                        active_telemetry_client = None
     except WebSocketDisconnect:
         if websocket in dashboard_clients:
             dashboard_clients.remove(websocket)
+
+import socket
+import threading
+
+def run_tcp_server(port: int):
+    global active_telemetry_client
+    server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    server.bind(("127.0.0.1", port + 1))
+    server.listen(1)
+    
+    while True:
+        conn, addr = server.accept()
+        active_telemetry_client = conn
+        
+        def handle_client(c):
+            global active_telemetry_client
+            f = c.makefile("r", encoding="utf-8")
+            try:
+                while True:
+                    line = f.readline()
+                    if not line:
+                        break
+                    broadcast_log(line)
+            except Exception:
+                pass
+            finally:
+                if active_telemetry_client == c:
+                    active_telemetry_client = None
+                c.close()
+                
+        threading.Thread(target=handle_client, args=(conn,), daemon=True).start()
 
 def run_server(port: int):
     # Disable uvicorn access logs to keep terminal clean
@@ -103,4 +126,12 @@ def run_server(port: int):
     log = logging.getLogger("uvicorn.access")
     log.setLevel(logging.WARNING)
     
-    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
+    global loop
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
+    threading.Thread(target=run_tcp_server, args=(port,), daemon=True).start()
+    
+    config = uvicorn.Config(app, host="127.0.0.1", port=port, log_level="warning", loop="asyncio")
+    server = uvicorn.Server(config)
+    loop.run_until_complete(server.serve())

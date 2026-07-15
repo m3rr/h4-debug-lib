@@ -10,3 +10,6 @@ h4_debug.egg-info/dependency_links.txt
 h4_debug.egg-info/entry_points.txt
 h4_debug.egg-info/requires.txt
 h4_debug.egg-info/top_level.txt
+h4_debug/static/dashboard.css
+h4_debug/static/dashboard.html
+h4_debug/static/dashboard.js

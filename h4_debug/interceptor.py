@@ -7,12 +7,8 @@ import sys
 import threading
 import time
 import traceback
+import select
 from datetime import datetime
-
-try:
-    from websockets.sync.client import connect
-except ImportError:
-    connect = None
 
 # We must keep references to original functions to avoid infinite recursion
 _original_open = builtins.open
@@ -27,37 +23,35 @@ class TelemetryClient:
         self.thread.start()
 
     def _run(self):
-        ws_url = f"ws://127.0.0.1:{self.port}/ws/telemetry"
-        if not connect:
-            return
-            
+        # Connect to the local TCP server spawned by h4-debug
+        server_port = self.port + 1
+        
         while True:
             try:
-                with connect(ws_url) as websocket:
+                with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as conn:
+                    conn.connect(("127.0.0.1", server_port))
+                    
                     while True:
                         # 1. Send all queued outgoing telemetry
                         while not self.queue.empty():
                             try:
                                 msg = self.queue.get_nowait()
-                                websocket.send(json.dumps(msg))
-                                self.queue.task_done()
+                                conn.sendall((json.dumps(msg) + "\n").encode("utf-8"))
                             except queue.Empty:
                                 break
                                 
                         # 2. Check for incoming commands (with short timeout)
-                        try:
-                            # Using recv(timeout) requires catching TimeoutError
-                            cmd_data = websocket.recv(timeout=0.05)
-                            self._handle_command(cmd_data)
-                        except TimeoutError:
-                            pass
-                        except Exception as e:
-                            # If it's not a timeout, might be a real error
-                            if "timed out" not in str(e).lower():
-                                raise
-                                
+                        r, _, _ = select.select([conn], [], [], 0.05)
+                        if r:
+                            data = conn.recv(4096)
+                            if not data:
+                                break # Connection closed
+                            for line in data.decode("utf-8").split("\n"):
+                                if line.strip():
+                                    self._handle_command(line)
+                                    
                         time.sleep(0.01)
-            except Exception as e:
+            except Exception:
                 time.sleep(1)
                 
     def _handle_command(self, cmd_data):
