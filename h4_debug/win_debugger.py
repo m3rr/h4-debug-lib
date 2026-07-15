@@ -157,10 +157,68 @@ def read_process_memory(hProcess, address, size):
         return buffer.raw[:bytesRead.value]
     return b""
 
+def psutil_daemon(pid, client, stop_event):
+    import psutil
+    import threading
+    try:
+        proc = psutil.Process(pid)
+    except psutil.NoSuchProcess:
+        return
+        
+    seen_files = set()
+    seen_conns = set()
+    
+    while not stop_event.is_set():
+        try:
+            # Poll network
+            conns = proc.connections(kind='all')
+            for c in conns:
+                conn_id = f"{c.laddr}-{c.raddr}-{c.status}"
+                if conn_id not in seen_conns:
+                    seen_conns.add(conn_id)
+                    addr = str(c.raddr) if c.raddr else str(c.laddr)
+                    client.send("Network", "connect", {"address": f"{c.status} {addr}"})
+                    
+            # Poll files
+            files = proc.open_files()
+            for f in files:
+                if f.path not in seen_files:
+                    seen_files.add(f.path)
+                    client.send("Disk", "open", {"file": f.path, "mode": f.mode if hasattr(f, 'mode') else 'r'})
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            break
+        except Exception:
+            pass
+        
+        time.sleep(0.1)
+
+class SECURITY_ATTRIBUTES(ctypes.Structure):
+    _fields_ = [
+        ("nLength", wintypes.DWORD),
+        ("lpSecurityDescriptor", ctypes.c_void_p),
+        ("bInheritHandle", wintypes.BOOL),
+    ]
+
 def debug_process(command, client):
     si = STARTUPINFO()
     si.cb = ctypes.sizeof(si)
     pi = PROCESS_INFORMATION()
+
+    # Create Pipe for stdout/stderr
+    hReadPipe = wintypes.HANDLE()
+    hWritePipe = wintypes.HANDLE()
+    sa = SECURITY_ATTRIBUTES()
+    sa.nLength = ctypes.sizeof(SECURITY_ATTRIBUTES)
+    sa.bInheritHandle = True
+    sa.lpSecurityDescriptor = None
+
+    if kernel32.CreatePipe(ctypes.byref(hReadPipe), ctypes.byref(hWritePipe), ctypes.byref(sa), 0):
+        # Ensure the read handle to the pipe is not inherited
+        kernel32.SetHandleInformation(hReadPipe, 1, 0) # HANDLE_FLAG_INHERIT = 1
+        
+        si.hStdError = hWritePipe
+        si.hStdOutput = hWritePipe
+        si.dwFlags |= 0x00000100 # STARTF_USESTDHANDLES
 
     creation_flags = DEBUG_PROCESS
 
@@ -168,13 +226,41 @@ def debug_process(command, client):
     cmd_str = " ".join(f'"{c}"' if " " in c else c for c in command)
 
     if not kernel32.CreateProcessW(
-        None, ctypes.c_wchar_p(cmd_str), None, None, False,
+        None, ctypes.c_wchar_p(cmd_str), None, None, True, # bInheritHandles=True
         creation_flags, None, None, ctypes.byref(si), ctypes.byref(pi)):
         client.send("System", "error", {"text": f"Failed to CreateProcess: {ctypes.GetLastError()}"})
+        if hWritePipe:
+            kernel32.CloseHandle(hReadPipe)
+            kernel32.CloseHandle(hWritePipe)
         return
+
+    # Close our write end of the pipe so the read thread unblocks when the process exits
+    if hWritePipe:
+        kernel32.CloseHandle(hWritePipe)
+        
+    def stream_pipe(handle, client):
+        buffer = ctypes.create_string_buffer(4096)
+        bytes_read = wintypes.DWORD()
+        while True:
+            if not kernel32.ReadFile(handle, buffer, 4096, ctypes.byref(bytes_read), None) or bytes_read.value == 0:
+                break
+            text = buffer.raw[:bytes_read.value].decode('utf-8', 'replace').strip('\r\n\x00')
+            if text:
+                for line in text.splitlines():
+                    client.send("Console", "stdout", {"text": line})
+        kernel32.CloseHandle(handle)
+        
+    pipe_thread = None
+    if hReadPipe:
+        pipe_thread = threading.Thread(target=stream_pipe, args=(hReadPipe, client), daemon=True)
+        pipe_thread.start()
 
     process_handle = None
     debug_event = DEBUG_EVENT()
+    
+    import threading
+    daemon_stop_event = threading.Event()
+    daemon_thread = None
 
     while True:
         if not kernel32.WaitForDebugEvent(ctypes.byref(debug_event), 1000): # 1 sec timeout to yield
@@ -189,6 +275,11 @@ def debug_process(command, client):
         if debug_event.dwDebugEventCode == CREATE_PROCESS_DEBUG_EVENT:
             process_handle = debug_event.u.CreateProcessInfo.hProcess
             client.send("System", "info", {"text": f"Process Created: PID {debug_event.dwProcessId}"})
+            
+            # Start psutil daemon for disk and network tracking
+            daemon_thread = threading.Thread(target=psutil_daemon, args=(debug_event.dwProcessId, client, daemon_stop_event), daemon=True)
+            daemon_thread.start()
+            
             if debug_event.u.CreateProcessInfo.hFile:
                 kernel32.CloseHandle(debug_event.u.CreateProcessInfo.hFile)
 
@@ -217,11 +308,16 @@ def debug_process(command, client):
 
         elif debug_event.dwDebugEventCode == EXIT_PROCESS_DEBUG_EVENT:
             client.send("System", "info", {"text": f"Process Exited with code {debug_event.u.ExitProcess.dwExitCode}"})
+            daemon_stop_event.set()
             kernel32.ContinueDebugEvent(debug_event.dwProcessId, debug_event.dwThreadId, continue_status)
             break
 
         kernel32.ContinueDebugEvent(debug_event.dwProcessId, debug_event.dwThreadId, continue_status)
     
+    daemon_stop_event.set()
+    if daemon_thread:
+        daemon_thread.join(timeout=1.0)
+        
     if process_handle:
         kernel32.CloseHandle(pi.hThread)
         kernel32.CloseHandle(pi.hProcess)
