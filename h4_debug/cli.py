@@ -38,9 +38,7 @@ def main():
     env = os.environ.copy()
 
     # 3. Dispatch to handler based on file extension
-    ext = ""
-    if os.path.isfile(target):
-        ext = os.path.splitext(target)[1].lower()
+    ext = os.path.splitext(target)[1].lower()
 
     if ext == ".py":
         handlers.handle_python(target, command, env, args)

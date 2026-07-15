@@ -4,6 +4,7 @@ import time
 import struct
 import sys
 import os
+import threading
 
 kernel32 = ctypes.WinDLL('kernel32', use_last_error=True)
 
@@ -159,7 +160,6 @@ def read_process_memory(hProcess, address, size):
 
 def psutil_daemon(pid, client, stop_event):
     import psutil
-    import threading
     try:
         proc = psutil.Process(pid)
     except psutil.NoSuchProcess:
@@ -272,7 +272,6 @@ def debug_process(command, client):
     process_handle = None
     debug_event = DEBUG_EVENT()
     
-    import threading
     daemon_stop_event = threading.Event()
     daemon_thread = None
 
