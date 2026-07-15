@@ -47,9 +47,23 @@
                             <option value="light">Light</option>
                         </select>
                     </label>
-                    <label><input type="checkbox" id="toggle-info" checked> Info</label>
-                    <label><input type="checkbox" id="toggle-warn" checked> Warn</label>
-                    <label><input type="checkbox" id="toggle-error" checked> Error</label>
+                    <div class="toggle-group">
+                        <label class="switch-container">
+                            <input type="checkbox" id="toggle-info" checked>
+                            <span class="switch-slider"></span>
+                            <span class="switch-label">Info</span>
+                        </label>
+                        <label class="switch-container">
+                            <input type="checkbox" id="toggle-warn" checked>
+                            <span class="switch-slider"></span>
+                            <span class="switch-label">Warn</span>
+                        </label>
+                        <label class="switch-container">
+                            <input type="checkbox" id="toggle-error" checked>
+                            <span class="switch-slider"></span>
+                            <span class="switch-label">Error</span>
+                        </label>
+                    </div>
                 </div>
             </div>
 

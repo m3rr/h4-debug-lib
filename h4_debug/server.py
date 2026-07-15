@@ -59,6 +59,7 @@ async def get_dashboard():
 @app.websocket("/ws/dashboard")
 async def websocket_dashboard(websocket: WebSocket):
     """Endpoint for the web dashboard to receive logs and send commands."""
+    global active_telemetry_client
     await websocket.accept()
     
     # Send history on connect
