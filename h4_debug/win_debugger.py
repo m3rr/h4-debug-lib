@@ -228,7 +228,14 @@ def debug_process(command, client):
     if not kernel32.CreateProcessW(
         None, ctypes.c_wchar_p(cmd_str), None, None, True, # bInheritHandles=True
         creation_flags, None, None, ctypes.byref(si), ctypes.byref(pi)):
-        client.send("System", "error", {"text": f"Failed to CreateProcess: {ctypes.GetLastError()}"})
+        err = ctypes.GetLastError()
+        err_msg = f"Failed to CreateProcess: {err}"
+        if err == 5:
+            err_msg += " (Access Denied). The executable may require Administrator privileges, or it may be blocked by Windows Defender/DRM. Try running h4-debug from an Administrator terminal."
+        elif err == 740:
+            err_msg += " (Elevation Required). The executable requires Administrator privileges. Please run h4-debug from an Administrator terminal."
+        client.send("System", "error", {"text": err_msg})
+        print(f"[h4-debug] {err_msg}")
         if hWritePipe:
             kernel32.CloseHandle(hReadPipe)
             kernel32.CloseHandle(hWritePipe)
