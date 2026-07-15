@@ -22,4 +22,4 @@ dependencies = [
 h4-debug = "h4_debug.cli:main"
 
 [tool.setuptools.package-data]
-h4_debug = ["static/*"]
+"h4_debug" = ["static/*", "*.js"]
