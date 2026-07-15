@@ -4,6 +4,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const tabContents = document.querySelectorAll('.tab-content');
     const statusIndicator = document.querySelector('.status-indicator');
     const filterInput = document.getElementById('filter-input');
+    const modeSelect = document.getElementById('mode-select');
+    const replInput = document.getElementById('repl-input');
     
     const containers = {
         console: document.getElementById('console-logs'),
@@ -75,8 +77,16 @@ document.addEventListener('DOMContentLoaded', () => {
         } else if (log.module === 'Execution') {
             renderBasicLog(containers.execution, log, timeStr);
         } else if (log.module === 'Console') {
-            renderBasicLog(containers.console, log, timeStr);
+            if (log.type === 'eval_result') {
+                renderEvalResult(containers.console, log, timeStr);
+            } else {
+                renderBasicLog(containers.console, log, timeStr);
+            }
         } else if (log.module === 'System') {
+            if (log.type === 'init' && log.data.language) {
+                replInput.placeholder = `Evaluate ${log.data.language} expression...`;
+                if (log.data.mode) modeSelect.value = log.data.mode;
+            }
             renderBasicLog(containers.console, log, timeStr, 'system');
         } else {
             renderBasicLog(containers.console, log, timeStr);
@@ -105,6 +115,31 @@ document.addEventListener('DOMContentLoaded', () => {
         } else {
             dataEl.textContent = JSON.stringify(log.data);
         }
+        
+        el.appendChild(timeEl);
+        el.appendChild(modEl);
+        el.appendChild(dataEl);
+        
+        container.appendChild(el);
+        scrollToBottom(container);
+    }
+    
+    function renderEvalResult(container, log, timeStr) {
+        const el = document.createElement('div');
+        el.className = 'log-entry eval_result' + (log.data.is_error ? ' error' : '');
+        el.dataset.raw = JSON.stringify(log);
+        
+        const timeEl = document.createElement('div');
+        timeEl.className = 'log-time';
+        timeEl.textContent = timeStr;
+        
+        const modEl = document.createElement('div');
+        modEl.className = 'log-module';
+        modEl.textContent = `[Eval]`;
+        
+        const dataEl = document.createElement('div');
+        dataEl.className = 'log-data';
+        dataEl.textContent = log.data.result;
         
         el.appendChild(timeEl);
         el.appendChild(modEl);
@@ -177,6 +212,38 @@ document.addEventListener('DOMContentLoaded', () => {
     filterInput.addEventListener('input', () => {
         Object.values(containers).forEach(c => c.innerHTML = '');
         allLogs.forEach(processLog);
+    });
+
+    // Mode Toggle Logic
+    modeSelect.addEventListener('change', (e) => {
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                action: 'set_mode',
+                mode: e.target.value
+            }));
+        }
+    });
+
+    // REPL Console Logic
+    replInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && replInput.value.trim() !== '') {
+            const code = replInput.value;
+            // Echo locally
+            renderBasicLog(containers.console, {
+                timestamp: new Date().toISOString(),
+                module: 'Console',
+                type: 'input',
+                data: { text: `> ${code}` }
+            }, new Date().toLocaleTimeString([], {hour12: false, fractionalSecondDigits: 3}));
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({
+                    action: 'evaluate',
+                    code: code
+                }));
+            }
+            replInput.value = '';
+        }
     });
 
     // Clear Button

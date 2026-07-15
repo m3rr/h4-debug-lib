@@ -8,8 +8,9 @@ from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
 
-# Store connected dashboard clients
+# Store connected dashboard clients and the active telemetry process
 dashboard_clients = []
+active_telemetry_client = None
 
 # To persist logs for when a dashboard connects slightly after startup
 log_history = []
@@ -32,8 +33,11 @@ async def get_dashboard():
 
 @app.websocket("/ws/telemetry")
 async def websocket_telemetry(websocket: WebSocket):
-    """Endpoint for the intercepted process to push logs."""
+    """Endpoint for the intercepted process to push logs and receive commands."""
+    global active_telemetry_client
     await websocket.accept()
+    active_telemetry_client = websocket
+    
     try:
         while True:
             data = await websocket.receive_text()
@@ -58,11 +62,12 @@ async def websocket_telemetry(websocket: WebSocket):
                 if client in dashboard_clients:
                     dashboard_clients.remove(client)
     except WebSocketDisconnect:
-        pass
+        if active_telemetry_client == websocket:
+            active_telemetry_client = None
 
 @app.websocket("/ws/dashboard")
 async def websocket_dashboard(websocket: WebSocket):
-    """Endpoint for the web dashboard to receive logs."""
+    """Endpoint for the web dashboard to receive logs and send commands."""
     await websocket.accept()
     
     # Send history on connect
@@ -75,11 +80,19 @@ async def websocket_dashboard(websocket: WebSocket):
     dashboard_clients.append(websocket)
     try:
         while True:
-            # Keep alive and receive commands from dashboard if needed
+            # Receive commands from dashboard
             data = await websocket.receive_text()
             cmd = json.loads(data)
+            
             if cmd.get("action") == "clear":
                 log_history.clear()
+            elif cmd.get("action") in ["evaluate", "set_mode"]:
+                # Forward commands to the active telemetry process
+                if active_telemetry_client:
+                    try:
+                        await active_telemetry_client.send_text(json.dumps(cmd))
+                    except Exception:
+                        pass
     except WebSocketDisconnect:
         if websocket in dashboard_clients:
             dashboard_clients.remove(websocket)
@@ -91,4 +104,3 @@ def run_server(port: int):
     log.setLevel(logging.WARNING)
     
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")
-

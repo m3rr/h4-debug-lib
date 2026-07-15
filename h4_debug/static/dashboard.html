@@ -33,6 +33,13 @@
             <div class="toolbar">
                 <input type="text" id="filter-input" placeholder="Filter logs...">
                 <div class="toggles">
+                    <label>Mode: 
+                        <select id="mode-select">
+                            <option value="Normal">Normal</option>
+                            <option value="Trace">Trace</option>
+                            <option value="Full">Full Debug</option>
+                        </select>
+                    </label>
                     <label><input type="checkbox" id="toggle-info" checked> Info</label>
                     <label><input type="checkbox" id="toggle-warn" checked> Warn</label>
                     <label><input type="checkbox" id="toggle-error" checked> Error</label>
@@ -42,6 +49,10 @@
             <!-- Tab Contents -->
             <div id="tab-console" class="tab-content active">
                 <div class="log-container" id="console-logs"></div>
+                <div class="repl-container">
+                    <span class="repl-prompt">&gt;</span>
+                    <input type="text" id="repl-input" placeholder="Evaluate expression...">
+                </div>
             </div>
 
             <div id="tab-network" class="tab-content">

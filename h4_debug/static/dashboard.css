@@ -201,6 +201,34 @@ button:hover {
 .log-entry.error .log-data { color: var(--danger); }
 .log-entry.warn .log-data { color: var(--warning); }
 .log-entry.system .log-data { color: var(--success); }
+.log-entry.eval_result .log-data { color: var(--accent); font-weight: bold; }
+.log-entry.eval_result.error .log-data { color: var(--danger); font-weight: normal; }
+
+/* REPL Console Input */
+.repl-container {
+    display: flex;
+    padding: 10px;
+    border-top: 1px solid var(--border-color);
+    background-color: var(--bg-secondary);
+    align-items: center;
+}
+
+.repl-prompt {
+    color: var(--accent);
+    font-weight: bold;
+    margin-right: 10px;
+    font-family: var(--font-family);
+}
+
+#repl-input {
+    flex-grow: 1;
+    background: transparent;
+    border: none;
+    color: var(--text-primary);
+    font-family: var(--font-family);
+    font-size: 0.9rem;
+    outline: none;
+}
 
 /* Split View for Network */
 .split-view {

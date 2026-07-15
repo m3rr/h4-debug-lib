@@ -33,18 +33,82 @@ class TelemetryClient:
             
         while True:
             try:
-                # Use original socket context if websockets internally creates sockets
-                # This might be tricky because websockets uses asyncio or sync wrappers 
-                # which use the monkeypatched socket. We must be very careful.
-                # A safer approach for the telemetry thread is to unpatch socket temporarily or 
-                # ensure our hooks bypass if thread == telemetry_thread
                 with connect(ws_url) as websocket:
                     while True:
-                        msg = self.queue.get()
-                        websocket.send(json.dumps(msg))
-                        self.queue.task_done()
+                        # 1. Send all queued outgoing telemetry
+                        while not self.queue.empty():
+                            try:
+                                msg = self.queue.get_nowait()
+                                websocket.send(json.dumps(msg))
+                                self.queue.task_done()
+                            except queue.Empty:
+                                break
+                                
+                        # 2. Check for incoming commands (with short timeout)
+                        try:
+                            # Using recv(timeout) requires catching TimeoutError
+                            cmd_data = websocket.recv(timeout=0.05)
+                            self._handle_command(cmd_data)
+                        except TimeoutError:
+                            pass
+                        except Exception as e:
+                            # If it's not a timeout, might be a real error
+                            if "timed out" not in str(e).lower():
+                                raise
+                                
+                        time.sleep(0.01)
             except Exception as e:
                 time.sleep(1)
+                
+    def _handle_command(self, cmd_data):
+        try:
+            cmd = json.loads(cmd_data)
+            action = cmd.get("action")
+            
+            if action == "set_mode":
+                new_mode = cmd.get("mode", "Normal")
+                global _mode
+                _mode = new_mode
+                
+                # Apply new mode logic
+                if _mode in ("Trace", "Full"):
+                    sys.settrace(trace_calls)
+                else:
+                    sys.settrace(None)
+                    
+                self.send("System", "info", {"text": f"Mode changed to {_mode}"})
+                
+            elif action == "evaluate":
+                code = cmd.get("code", "")
+                result = None
+                is_error = False
+                
+                # Try eval first, then exec
+                try:
+                    result = eval(code, globals())
+                except SyntaxError:
+                    try:
+                        # Capture stdout for exec
+                        import io
+                        old_stdout = sys.stdout
+                        sys.stdout = capture = io.StringIO()
+                        exec(code, globals())
+                        sys.stdout = old_stdout
+                        result = capture.getvalue()
+                    except Exception as e:
+                        is_error = True
+                        result = traceback.format_exc()
+                except Exception as e:
+                    is_error = True
+                    result = traceback.format_exc()
+                
+                self.send("Console", "eval_result", {
+                    "code": code,
+                    "result": str(result),
+                    "is_error": is_error
+                })
+        except Exception:
+            pass
 
     def send(self, module, event_type, data):
         msg = {
@@ -193,5 +257,9 @@ def start_interception(mode="Normal"):
     if mode in ("Trace", "Full"):
         sys.settrace(trace_calls)
         
-    _telemetry.send("System", "init", {"mode": mode, "pid": os.getpid()})
-
+    _telemetry.send("System", "init", {
+        "mode": mode,
+        "pid": os.getpid(),
+        "language": "python",
+        "version": sys.version
+    })
