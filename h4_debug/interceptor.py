@@ -70,12 +70,6 @@ class TelemetryClient:
                 global _mode
                 _mode = new_mode
                 
-                # Apply new mode logic
-                if _mode in ("Trace", "Full"):
-                    sys.settrace(trace_calls)
-                else:
-                    sys.settrace(None)
-                    
                 self.send("System", "info", {"text": f"Mode changed to {_mode}"})
                 
             elif action == "evaluate":
@@ -212,20 +206,27 @@ def trace_calls(frame, event, arg):
     if _is_telemetry_thread() or not _telemetry:
         return trace_calls
         
-    if event == "call":
-        func_name = frame.f_code.co_name
-        filename = frame.f_code.co_filename
-        # Ignore our own files and standard library to avoid noise, unless Full Debug
-        if "h4_debug" not in filename and ("site-packages" not in filename or _mode == "Full"):
+    if _mode == "Normal":
+        return trace_calls
+
+    filename = frame.f_code.co_filename
+    if "h4_debug" in filename or "websockets" in filename:
+        return trace_calls # Ignore our own debugger code
+
+    is_user_code = "site-packages" not in filename and "lib" not in filename.lower()
+    
+    if _mode == "Trace":
+        if not is_user_code:
+            return trace_calls
+            
+        if event == "call":
             _telemetry.send("Execution", "call", {
-                "function": func_name,
+                "function": frame.f_code.co_name,
                 "file": filename,
                 "line": frame.f_lineno
             })
-    elif event == "exception" and _mode in ("Trace", "Full"):
-        exc_type, exc_value, exc_traceback = arg
-        filename = frame.f_code.co_filename
-        if "h4_debug" not in filename:
+        elif event == "exception":
+            exc_type, exc_value, _ = arg
             _telemetry.send("Execution", "exception", {
                 "type": exc_type.__name__,
                 "value": str(exc_value),
@@ -233,6 +234,28 @@ def trace_calls(frame, event, arg):
                 "line": frame.f_lineno
             })
             
+    elif _mode == "Full":
+        if event == "line" and is_user_code:
+            _telemetry.send("Execution", "line", {
+                "function": frame.f_code.co_name,
+                "file": filename,
+                "line": frame.f_lineno
+            })
+        elif event in ("call", "return"):
+            _telemetry.send("Execution", event, {
+                "function": frame.f_code.co_name,
+                "file": filename,
+                "line": frame.f_lineno
+            })
+        elif event == "exception":
+            exc_type, exc_value, _ = arg
+            _telemetry.send("Execution", "exception", {
+                "type": exc_type.__name__,
+                "value": str(exc_value),
+                "file": filename,
+                "line": frame.f_lineno
+            })
+
     return trace_calls
 
 def start_interception(mode="Normal"):
@@ -253,9 +276,8 @@ def start_interception(mode="Normal"):
     sys.stdout = PatchedStream(sys.stdout, "stdout")
     sys.stderr = PatchedStream(sys.stderr, "stderr")
     
-    # Enable Tracing if required
-    if mode in ("Trace", "Full"):
-        sys.settrace(trace_calls)
+    # ALWAYS enable Tracing so dynamic mode switching works later
+    sys.settrace(trace_calls)
         
     _telemetry.send("System", "init", {
         "mode": mode,

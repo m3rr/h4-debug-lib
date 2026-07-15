@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const statusIndicator = document.querySelector('.status-indicator');
     const filterInput = document.getElementById('filter-input');
     const modeSelect = document.getElementById('mode-select');
+    const themeSelect = document.getElementById('theme-select');
     const replInput = document.getElementById('repl-input');
     
     const containers = {
@@ -221,6 +222,20 @@ document.addEventListener('DOMContentLoaded', () => {
                 action: 'set_mode',
                 mode: e.target.value
             }));
+        }
+    });
+
+    // Theme Toggle Logic
+    themeSelect.addEventListener('change', (e) => {
+        const theme = e.target.value;
+        if (theme === 'dark') {
+            document.body.classList.add('theme-dark');
+            document.body.classList.remove('theme-light');
+        } else if (theme === 'light') {
+            document.body.classList.add('theme-light');
+            document.body.classList.remove('theme-dark');
+        } else {
+            document.body.classList.remove('theme-light', 'theme-dark');
         }
     });
 
