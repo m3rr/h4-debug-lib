@@ -223,6 +223,11 @@ def debug_process(command, client):
     creation_flags = DEBUG_PROCESS
 
     # Convert command list to string for Windows
+    import shutil
+    resolved_exe = shutil.which(command[0])
+    if resolved_exe:
+        command[0] = resolved_exe
+        
     cmd_str = " ".join(f'"{c}"' if " " in c else c for c in command)
 
     if not kernel32.CreateProcessW(
@@ -230,7 +235,9 @@ def debug_process(command, client):
         creation_flags, None, None, ctypes.byref(si), ctypes.byref(pi)):
         err = ctypes.GetLastError()
         err_msg = f"Failed to CreateProcess: {err}"
-        if err == 5:
+        if err == 2:
+            err_msg += f" (File Not Found). Windows could not locate the executable '{command[0]}'. Make sure the path is correct."
+        elif err == 5:
             err_msg += " (Access Denied). The executable may require Administrator privileges, or it may be blocked by Windows Defender/DRM. Try running h4-debug from an Administrator terminal."
         elif err == 740:
             err_msg += " (Elevation Required). The executable requires Administrator privileges. Please run h4-debug from an Administrator terminal."
