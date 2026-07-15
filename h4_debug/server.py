@@ -9,8 +9,9 @@ from fastapi.staticfiles import StaticFiles
 app = FastAPI()
 
 # Store connected dashboard clients and the active telemetry process
-dashboard_clients = []
-active_telemetry_client = None  # This will now be a TCP socket
+dashboard_clients: List[WebSocket] = []
+telemetry_clients = set()
+MAX_HISTORY = 1000
 
 # For broadcasting logs to WebSockets
 def broadcast_log(log_item_str):
@@ -39,7 +40,6 @@ def broadcast_log(log_item_str):
 
 # To persist logs for when a dashboard connects slightly after startup
 log_history = []
-MAX_HISTORY = 5000
 
 # Get the path to static files
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "static")
@@ -59,7 +59,6 @@ async def get_dashboard():
 @app.websocket("/ws/dashboard")
 async def websocket_dashboard(websocket: WebSocket):
     """Endpoint for the web dashboard to receive logs and send commands."""
-    global active_telemetry_client
     await websocket.accept()
     
     # Send history on connect
@@ -79,12 +78,17 @@ async def websocket_dashboard(websocket: WebSocket):
             if cmd.get("action") == "clear":
                 log_history.clear()
             elif cmd.get("action") in ["evaluate", "set_mode"]:
-                # Forward commands to the active telemetry process via TCP
-                if active_telemetry_client:
+                # Forward commands to ALL active telemetry processes via TCP
+                dead_clients = set()
+                for client in telemetry_clients:
                     try:
-                        active_telemetry_client.sendall((json.dumps(cmd) + "\n").encode("utf-8"))
+                        client.sendall((json.dumps(cmd) + "\n").encode("utf-8"))
                     except Exception:
-                        active_telemetry_client = None
+                        dead_clients.add(client)
+                        
+                for dead in dead_clients:
+                    telemetry_clients.discard(dead)
+
     except WebSocketDisconnect:
         if websocket in dashboard_clients:
             dashboard_clients.remove(websocket)
@@ -93,7 +97,6 @@ import socket
 import threading
 
 def run_tcp_server(port: int):
-    global active_telemetry_client
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server.bind(("127.0.0.1", port + 1))
@@ -101,11 +104,10 @@ def run_tcp_server(port: int):
     
     while True:
         conn, addr = server.accept()
-        active_telemetry_client = conn
         
         def handle_client(c):
-            global active_telemetry_client
             f = c.makefile("r", encoding="utf-8")
+            telemetry_clients.add(c)
             try:
                 while True:
                     line = f.readline()
@@ -115,8 +117,8 @@ def run_tcp_server(port: int):
             except Exception:
                 pass
             finally:
-                if active_telemetry_client == c:
-                    active_telemetry_client = None
+                if c in telemetry_clients:
+                    telemetry_clients.remove(c)
                 c.close()
                 
         threading.Thread(target=handle_client, args=(conn,), daemon=True).start()

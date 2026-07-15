@@ -3,11 +3,13 @@ import json
 import os
 import queue
 import socket
-import sys
-import threading
+import json
 import time
 import traceback
 import select
+import sys
+import threading
+import sysconfig
 from datetime import datetime
 
 # We must keep references to original functions to avoid infinite recursion
@@ -19,6 +21,7 @@ class TelemetryClient:
     def __init__(self, port):
         self.port = port
         self.queue = queue.Queue()
+        self.buffer = ""
         self.thread = threading.Thread(target=self._run, daemon=True)
         self.thread.start()
 
@@ -40,15 +43,18 @@ class TelemetryClient:
                             except queue.Empty:
                                 break
                                 
-                        # 2. Check for incoming commands (with short timeout)
+                        # 2. Process incoming commands
                         r, _, _ = select.select([conn], [], [], 0.05)
                         if r:
                             data = conn.recv(4096)
                             if not data:
                                 break # Connection closed
-                            for line in data.decode("utf-8").split("\n"):
+                                
+                            self.buffer += data.decode("utf-8", errors="replace")
+                            while "\n" in self.buffer:
+                                line, self.buffer = self.buffer.split("\n", 1)
                                 if line.strip():
-                                    self._handle_command(line)
+                                    self._handle_command(line.strip())
                                     
                         time.sleep(0.01)
             except Exception:
@@ -57,16 +63,13 @@ class TelemetryClient:
     def _handle_command(self, cmd_data):
         try:
             cmd = json.loads(cmd_data)
-            action = cmd.get("action")
             
-            if action == "set_mode":
-                new_mode = cmd.get("mode", "Normal")
+            if cmd.get("action") == "set_mode":
                 global _mode
-                _mode = new_mode
-                
+                _mode = cmd.get("mode", "Normal")
                 self.send("System", "info", {"text": f"Mode changed to {_mode}"})
                 
-            elif action == "evaluate":
+            elif cmd.get("action") == "evaluate":
                 code = cmd.get("code", "")
                 result = None
                 is_error = False
@@ -196,18 +199,38 @@ class PatchedStream:
 
 # --- Execution Tracing ---
 
+def is_user_code_path(filename):
+    # Check if a filename belongs to the user's project
+    cwd = os.getcwd()
+    if filename.startswith(cwd):
+        return True
+    
+    if "site-packages" in filename:
+        return False
+        
+    stdlib = sysconfig.get_path('stdlib')
+    if stdlib and filename.startswith(stdlib):
+        return False
+        
+    # As a fallback, check if it starts with the python prefix
+    if filename.startswith(sys.prefix) or filename.startswith(sys.base_prefix):
+        return False
+        
+    return True
+
 def trace_calls(frame, event, arg):
-    if _is_telemetry_thread() or not _telemetry:
+    global _mode
+    if _mode == "Normal":
+        return trace_calls # Always trace so we can hot-swap, but do nothing in Normal
+        
+    if not _telemetry:
         return trace_calls
         
-    if _mode == "Normal":
-        return trace_calls
-
     filename = frame.f_code.co_filename
     if "h4_debug" in filename or "websockets" in filename:
         return trace_calls # Ignore our own debugger code
 
-    is_user_code = "site-packages" not in filename and "lib" not in filename.lower()
+    is_user_code = is_user_code_path(filename)
     
     if _mode == "Trace":
         if not is_user_code:
@@ -260,6 +283,14 @@ def start_interception(mode="Normal"):
     _telemetry = TelemetryClient(port)
     _telemetry_thread_id = _telemetry.thread.ident
     
+    # Always engage tracing on startup so we can hot-swap modes dynamically
+    # It will remain dormant if mode == "Normal"
+    sys.settrace(trace_calls)
+    threading.settrace(trace_calls)
+    
+    apply_patches()
+
+def apply_patches():
     # Patch Disk
     builtins.open = patched_open
     
@@ -269,12 +300,9 @@ def start_interception(mode="Normal"):
     # Patch Console
     sys.stdout = PatchedStream(sys.stdout, "stdout")
     sys.stderr = PatchedStream(sys.stderr, "stderr")
-    
-    # ALWAYS enable Tracing so dynamic mode switching works later
-    sys.settrace(trace_calls)
         
     _telemetry.send("System", "init", {
-        "mode": mode,
+        "mode": _mode,
         "pid": os.getpid(),
         "language": "python",
         "version": sys.version
