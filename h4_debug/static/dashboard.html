@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>h4-debug | Advanced Telemetry</title>
+    <link rel="stylesheet" href="/static/dashboard.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar / Navigation -->
+        <nav class="sidebar">
+            <div class="logo">
+                <h1>h4-debug</h1>
+                <span class="status-indicator"></span>
+            </div>
+            <ul class="nav-links">
+                <li data-tab="console" class="active">Console</li>
+                <li data-tab="network">Network</li>
+                <li data-tab="disk">Disk / Source</li>
+                <li data-tab="execution">Execution</li>
+            </ul>
+            <div class="controls">
+                <button id="btn-clear">Clear Logs</button>
+                <button id="btn-export">Export JSON</button>
+            </div>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="content-area">
+            
+            <!-- Toolbar -->
+            <div class="toolbar">
+                <input type="text" id="filter-input" placeholder="Filter logs...">
+                <div class="toggles">
+                    <label><input type="checkbox" id="toggle-info" checked> Info</label>
+                    <label><input type="checkbox" id="toggle-warn" checked> Warn</label>
+                    <label><input type="checkbox" id="toggle-error" checked> Error</label>
+                </div>
+            </div>
+
+            <!-- Tab Contents -->
+            <div id="tab-console" class="tab-content active">
+                <div class="log-container" id="console-logs"></div>
+            </div>
+
+            <div id="tab-network" class="tab-content">
+                <div class="split-view">
+                    <div class="list-pane" id="network-logs"></div>
+                    <div class="detail-pane" id="network-details">Select a request to view details</div>
+                </div>
+            </div>
+
+            <div id="tab-disk" class="tab-content">
+                <div class="log-container" id="disk-logs"></div>
+            </div>
+
+            <div id="tab-execution" class="tab-content">
+                <div class="log-container" id="execution-logs"></div>
+            </div>
+
+        </main>
+    </div>
+
+    <!-- Custom Context Menu -->
+    <div id="context-menu" class="context-menu">
+        <ul>
+            <li id="menu-copy">Copy</li>
+            <li id="menu-copy-curl">Copy as cURL</li>
+            <li id="menu-copy-hex">Copy Hex Dump</li>
+        </ul>
+    </div>
+
+    <script src="/static/dashboard.js"></script>
+</body>
+</html>

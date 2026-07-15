@@ -1,0 +1,2 @@
+[console_scripts]
+h4-debug = h4_debug.cli:main

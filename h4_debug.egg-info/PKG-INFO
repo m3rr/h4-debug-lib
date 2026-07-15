@@ -1,0 +1,21 @@
+Metadata-Version: 2.4
+Name: h4-debug
+Version: 0.1.0
+Summary: Advanced application proxy debugger and F12-style web console
+Author-email: h4 <h4@example.com>
+Requires-Python: >=3.8
+Description-Content-Type: text/markdown
+Requires-Dist: fastapi>=0.100
+Requires-Dist: uvicorn[standard]>=0.20
+Requires-Dist: websockets>=11.0
+
+# h4-debug
+
+Advanced application proxy debugger and F12-style web console.
+
+## Usage
+
+```bash
+pip install h4-debug
+h4-debug python main.py
+```
