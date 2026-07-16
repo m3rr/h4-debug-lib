@@ -2,8 +2,11 @@ README.md
 pyproject.toml
 h4_debug/__init__.py
 h4_debug/cli.py
+h4_debug/handlers.py
 h4_debug/interceptor.py
+h4_debug/node_interceptor.js
 h4_debug/server.py
+h4_debug/win_debugger.py
 h4_debug.egg-info/PKG-INFO
 h4_debug.egg-info/SOURCES.txt
 h4_debug.egg-info/dependency_links.txt

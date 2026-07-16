@@ -42,6 +42,8 @@ def handle_python(target, command, env, args):
     print(f"[h4-debug] Launching process: {' '.join(command)}")
     process = None
     try:
+        if target.endswith('.py') and command[0] == target:
+            command = [sys.executable] + command
         process = subprocess.Popen(command, env=env)
         process.wait()
     except KeyboardInterrupt:

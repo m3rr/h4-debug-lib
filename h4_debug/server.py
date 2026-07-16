@@ -2,7 +2,6 @@ import asyncio
 import json
 import os
 import uvicorn
-from typing import List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -10,7 +9,7 @@ from fastapi.staticfiles import StaticFiles
 app = FastAPI()
 
 # Store connected dashboard clients and the active telemetry process
-dashboard_clients: List[WebSocket] = []
+dashboard_clients: list[WebSocket] = []
 telemetry_clients = set()
 MAX_HISTORY = 1000
 
